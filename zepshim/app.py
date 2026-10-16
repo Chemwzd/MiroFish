@@ -727,6 +727,20 @@ async def delete_batch(
     return store.get_batch(batch_id) or {}
 
 
+@app.get("/api/v2/graph/{graph_id}/ingestion")
+async def graph_ingestion(
+    graph_id: str,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None, alias="x-api-key"),
+) -> dict:
+    """该图的 episode 处理统计（供 MiroFish 展示"图谱收尾进度"）。"""
+
+    _check_auth(authorization, x_api_key)
+    if store.get_graph(graph_id) is None:
+        raise _not_found(f"graph {graph_id} not found")
+    return store.episode_stats(graph_id)
+
+
 @app.exception_handler(HTTPException)
 async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
     detail = exc.detail

@@ -326,18 +326,22 @@ const isStopping = ref(false)
 // 目的：收尾(stopping)期间不再只看到 running，而是能看到"还有 N 条待写入"在减少。
 const graphIngest = ref(null)
 const lastPendingLogged = ref(-1)
+const lastProcessedLogged = ref(-1)
 
 const graphIngestText = computed(() => {
   const g = graphIngest.value
   if (!g) return ''
-  const parts = []
+  const db = g.graph_db || {}
   const pending = g.pending_episode_count || 0
+  const parts = []
+  if (db.total) parts.push(`图谱入库 ${db.processed || 0}/${db.total}`)
   if (pending > 0) {
-    parts.push(`图谱收尾 ${pending} 条待写入`)
+    parts.push(`待写入 ${pending} 条`)
   } else {
-    parts.push(`图谱已写入 ${g.items_sent || 0} 条 / ${g.batches_sent || 0} 批`)
+    parts.push(`已写入 ${g.items_sent || 0} 条 / ${g.batches_sent || 0} 批`)
   }
-  if ((g.failed_count || 0) > 0) parts.push(`失败 ${g.failed_count} 批`)
+  const failed = Math.max(g.failed_count || 0, db.failed || 0)
+  if (failed > 0) parts.push(`失败 ${failed}`)
   return parts.join(' · ')
 })
 
@@ -398,6 +402,7 @@ const resetAllState = () => {
   runStatus.value = {}
   graphIngest.value = null
   lastPendingLogged.value = -1
+  lastProcessedLogged.value = -1
   allActions.value = []
   actionIds.value = new Set()
   prevTwitterRound.value = 0
@@ -533,9 +538,15 @@ const fetchRunStatus = async () => {
       if (data.graph_ingestion) {
         graphIngest.value = data.graph_ingestion
         const pendingNow = data.graph_ingestion.pending_episode_count || 0
-        if (pendingNow !== lastPendingLogged.value) {
+        const dbStats = data.graph_ingestion.graph_db || {}
+        // 每 5 条入库记一次，既能看出"在动"又不刷屏
+        const processedBucket = Math.floor((dbStats.processed || 0) / 5) * 5
+        if (pendingNow !== lastPendingLogged.value || processedBucket !== lastProcessedLogged.value) {
+          if (processedBucket !== lastProcessedLogged.value) lastProcessedLogged.value = processedBucket
           lastPendingLogged.value = pendingNow
-          if (pendingNow > 0) {
+          if (pendingNow > 0 && dbStats.total) {
+            addLog(`[图谱收尾] 已入库 ${dbStats.processed || 0}/${dbStats.total} 条，待写入 ${pendingNow} 条…`)
+          } else if (pendingNow > 0) {
             addLog(`[图谱收尾] 还有 ${pendingNow} 条 episode 正在写入图谱…`)
           } else if (data.runner_status === 'stopping' || data.runner_status === 'completed') {
             addLog('[图谱收尾] 图谱写入完成 ✓')

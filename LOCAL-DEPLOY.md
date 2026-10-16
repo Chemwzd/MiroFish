@@ -47,7 +47,7 @@
 
 | # | 文件 / 目录 | 改动 | 目的 |
 |---|---|---|---|
-| 1 | `zepshim/`（新增） | 本地 Zep Cloud v2 兼容服务：graph/node/edge/episode/batch/搜索 + LLM 抽取 + 别名归并 + 启动恢复未处理 episode | 替代 Zep Cloud，实现本地图谱 |
+| 1 | `zepshim/`（新增） | 本地 Zep Cloud v2 兼容服务：graph/node/edge/episode/batch/搜索 + LLM 抽取 + 别名归并 + 启动恢复未处理 episode；并暴露 `GET /api/v2/graph/{id}/ingestion`（total/processed/pending/failed） | 替代 Zep Cloud，实现本地图谱；提供实时进度 |
 | 2 | `backend/app/config.py` | 去掉"拒绝 `ZEP_API_URL`"的硬校验 | 允许本地/自建图谱端点 |
 | 3 | `backend/app/utils/zep.py` | 支持 `MIROFISH_ZEP_BASE_URL`；新增按轮数放大的收尾超时 `ingestion_wait_timeout_seconds()` | 指向本地 shim；长模拟不再因收尾超时被误判失败 |
 | 4 | `backend/app/services/zep_graph_memory_updater.py` | 收尾 deadline 按模拟轮数计算；新增 `_simulation_rounds()` | 同上（收尾主闸门） |
@@ -55,8 +55,8 @@
 | 6 | `backend/app/services/zep_tools.py` | LLM `max_tokens` 800 → 4096 | DeepSeek 系模型"先推理再出正文"，太小会返回空 |
 | 7 | `backend/app/services/simulation_config_generator.py` | 时间配置新增 `start_hour` | 避免小轮数模拟全落在 0–5 点"无人活跃"区间 |
 | 8 | `backend/scripts/run_{twitter,reddit,parallel}_simulation.py` | 使用 `start_hour`；twitter 侧增加 `round_trace.log` | 同上 + 便于诊断轮次/活跃人数 |
-| 9 | `backend/app/api/simulation.py` | `run-status` 增返 `graph_ingestion`（更新器实时统计：已发批次/条数、待写入 episode 数、失败批次） | 前端可见"图谱收尾进度" |
-| 10 | `frontend/src/components/Step3Simulation.vue` | SIMULATION MONITOR 标题旁新增图谱进度徽标 + 变化时写日志（进行中/失败/已完成三态配色） | 收尾期间不再只看到 running |
+| 9 | `backend/app/api/simulation.py` | `run-status` 增返 `graph_ingestion`：更新器实时统计（已发批次/条数、待写入 episode、失败批次）+ `graph_db`（zepshim 侧 入库/总数，1.5s 超时 + 3s 缓存） | 前端可见"图谱收尾进度"，且数字持续在动 |
+| 10 | `frontend/src/components/Step3Simulation.vue` | SIMULATION MONITOR 标题旁新增图谱进度徽标（显示`图谱入库 M/N`、待写入条数、失败数）+ 变化时写日志（每 5 条一档，进行中/失败/已完成三态配色） | 收尾期间不再只看到 running，且能看到数字在动 |
 | 11 | `frontend/vite.config.js` | `open: false`；proxy target `localhost` → `127.0.0.1` | Node 会把 localhost 解析成 ::1，导致代理失败 |
 | 12 | `backend/requirements.txt` | 追加 `mcp==1.24.0` | camel-ai/oasis 依赖 mcp<2（2.x 里 FastMCP 换位置，`import oasis` 会失败） |
 | 13 | `MiroFish/.env`（不入库） | 见 §3.12 | 本地端点/密钥/代理 |
@@ -99,6 +99,7 @@ no_proxy=127.0.0.1,localhost,::1,0.0.0.0
 | `patch_auto_complete_planA.py` | 方案 A：跑满自动收尾 |
 | `patch_round_scaled_ingestion_timeout.py` | 收尾超时按轮数放大 |
 | `patch_monitor_graph_ingestion.py` | 监控面板图谱收尾进度（本归档新增） |
+| `patch_ingestion_progress_counter.py` | zepshim `/ingestion` 接口 + run-status 并入 `graph_db` + 前端显示入库计数（本归档新增） |
 | `patch_litellm_deepseek.py` / `patch_clients_deepseek.py` | LiteLLM 增加 deepseek 模型并接入各客户端 |
 | `patch_e2e_local*.py` | 本地 e2e 联调脚本修缮 |
 

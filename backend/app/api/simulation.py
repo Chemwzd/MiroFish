@@ -4,6 +4,7 @@ Step2: Zep实体读取与过滤、OASIS模拟准备与运行（全程自动化�
 """
 
 import os
+import time
 import traceback
 from contextlib import nullcontext
 from flask import request, jsonify, send_file
@@ -1862,6 +1863,42 @@ def stop_simulation():
 
 # ============== 实时状态监控接口 ==============
 
+_GRAPH_DB_STATS_CACHE: dict[str, tuple[float, dict]] = {}
+
+
+def _shim_graph_ingestion(graph_id: str | None, ttl: float = 3.0) -> dict | None:
+    """向本地 zepshim 查该图的 episode 处理统计（短超时 + 短缓存，失败静默返回 None）。
+
+    Patched: updater 的 pending 列表在收尾时可能长时间不变，zepshim 侧 processed
+    计数才是"看得见在动"的进度信号。
+    """
+
+    if not graph_id:
+        return None
+    cached = _GRAPH_DB_STATS_CACHE.get(graph_id)
+    if cached and (time.time() - cached[0]) < ttl:
+        return cached[1]
+    try:
+        import httpx
+
+        from ..config import Config
+        from ..utils.zep import ZEP_CLOUD_BASE_URL
+
+        url = f"{ZEP_CLOUD_BASE_URL.rstrip('/')}/graph/{graph_id}/ingestion"
+        response = httpx.get(
+            url,
+            headers={"Authorization": f"Api-Key {Config.ZEP_API_KEY or ''}"},
+            timeout=1.5,
+        )
+        if response.status_code == 200:
+            stats = response.json()
+            _GRAPH_DB_STATS_CACHE[graph_id] = (time.time(), stats)
+            return stats
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 @simulation_bp.route('/<simulation_id>/run-status', methods=['GET'])
 def get_run_status(simulation_id: str):
     """
@@ -1913,7 +1950,14 @@ def get_run_status(simulation_id: str):
             from ..services.zep_graph_memory_updater import ZepGraphMemoryManager
 
             updater = ZepGraphMemoryManager.get_updater(simulation_id)
-            payload["graph_ingestion"] = updater.get_stats() if updater else None
+            if updater is None:
+                payload["graph_ingestion"] = None
+            else:
+                stats = updater.get_stats()
+                db_stats = _shim_graph_ingestion(getattr(updater, "graph_id", None))
+                if db_stats:
+                    stats["graph_db"] = db_stats
+                payload["graph_ingestion"] = stats
         except Exception as error:  # noqa: BLE001
             logger.warning(f"获取图谱写入进度失败: {error}")
             payload["graph_ingestion"] = None

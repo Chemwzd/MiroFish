@@ -306,6 +306,23 @@ class Store:
             for r in rows
         ]
 
+    def episode_stats(self, graph_id: str) -> dict:
+        """按图统计 episode 处理情况（MiroFish 用它显示"图谱收尾进度"）。"""
+        row = self._fetchone(
+            "SELECT COUNT(*) AS total,"
+            " SUM(CASE WHEN processed=1 THEN 1 ELSE 0 END) AS processed,"
+            " SUM(CASE WHEN processed=0 THEN 1 ELSE 0 END) AS pending,"
+            " SUM(CASE WHEN failed=1 THEN 1 ELSE 0 END) AS failed"
+            " FROM episodes WHERE graph_id=?",
+            (graph_id,),
+        )
+        return {
+            "total": (row["total"] if row else 0) or 0,
+            "processed": (row["processed"] if row else 0) or 0,
+            "pending": (row["pending"] if row else 0) or 0,
+            "failed": (row["failed"] if row else 0) or 0,
+        }
+
     # ----------------------------------------------------------------- nodes
     def upsert_node(self, *, graph_id: str, name: str, name_key: str, labels: list[str],
                     summary: str, attributes: dict, created_at: str | None = None) -> tuple[str, bool]:
