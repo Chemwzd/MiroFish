@@ -1906,9 +1906,20 @@ def get_run_status(simulation_id: str):
                 }
             })
         
+        payload = run_state.to_dict()
+        # Patched: 把"图谱记忆写入 / 收尾"进度一并返回，供前端 SIMULATION MONITOR 展示。
+        # 收尾(stopping)期间若只回 runner_status，前端只能看到 running、看不到进度在动。
+        try:
+            from ..services.zep_graph_memory_updater import ZepGraphMemoryManager
+
+            updater = ZepGraphMemoryManager.get_updater(simulation_id)
+            payload["graph_ingestion"] = updater.get_stats() if updater else None
+        except Exception as error:  # noqa: BLE001
+            logger.warning(f"获取图谱写入进度失败: {error}")
+            payload["graph_ingestion"] = None
         return jsonify({
             "success": True,
-            "data": run_state.to_dict()
+            "data": payload
         })
         
     except Exception as e:

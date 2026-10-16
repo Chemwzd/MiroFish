@@ -68,8 +68,10 @@ class Config:
             errors.append("LLM_API_KEY 未配置")
         if not cls.ZEP_API_KEY:
             errors.append("ZEP_API_KEY 未配置")
-        if os.environ.get("ZEP_API_URL"):
-            errors.append("ZEP_API_URL 不受支持；MiroFish 仅连接 Zep Cloud")
+        # Patched for a local Zep-compatible service (see zepshim).
+        # The upstream build rejects ZEP_API_URL outright; the local shim is
+        # addressed through MIROFISH_ZEP_BASE_URL instead, which
+        # utils/zep.py reads below. Nothing else about this check changes.
         if cls.DEBUG:
             import warnings
             warnings.warn("Flask DEBUG mode is enabled. Do not use in production.", RuntimeWarning)

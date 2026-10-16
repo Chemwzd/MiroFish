@@ -273,6 +273,7 @@
     <div class="system-logs">
       <div class="log-header">
         <span class="log-title">SIMULATION MONITOR</span>
+        <span v-if="graphIngestText" class="log-ingest" :class="graphIngestClass">{{ graphIngestText }}</span>
         <span class="log-id">{{ simulationId || 'NO_SIMULATION' }}</span>
       </div>
       <div class="log-content" ref="logContent">
@@ -320,6 +321,32 @@ const isGeneratingReport = ref(false)
 const phase = ref(0) // 0: 未开始, 1: 运行中, 2: 已完成
 const isStarting = ref(false)
 const isStopping = ref(false)
+
+// Patched: 图谱记忆写入 / 收尾进度（来自 run-status 的 graph_ingestion）。
+// 目的：收尾(stopping)期间不再只看到 running，而是能看到"还有 N 条待写入"在减少。
+const graphIngest = ref(null)
+const lastPendingLogged = ref(-1)
+
+const graphIngestText = computed(() => {
+  const g = graphIngest.value
+  if (!g) return ''
+  const parts = []
+  const pending = g.pending_episode_count || 0
+  if (pending > 0) {
+    parts.push(`图谱收尾 ${pending} 条待写入`)
+  } else {
+    parts.push(`图谱已写入 ${g.items_sent || 0} 条 / ${g.batches_sent || 0} 批`)
+  }
+  if ((g.failed_count || 0) > 0) parts.push(`失败 ${g.failed_count} 批`)
+  return parts.join(' · ')
+})
+
+const graphIngestClass = computed(() => {
+  const g = graphIngest.value
+  if (!g) return ''
+  if ((g.failed_count || 0) > 0) return 'fail'
+  return (g.pending_episode_count || 0) > 0 ? 'pending' : 'done'
+})
 const startError = ref(null)
 const runStatus = ref({})
 const allActions = ref([]) // 所有动作（增量累积）
@@ -369,6 +396,8 @@ const addLog = (msg) => {
 const resetAllState = () => {
   phase.value = 0
   runStatus.value = {}
+  graphIngest.value = null
+  lastPendingLogged.value = -1
   allActions.value = []
   actionIds.value = new Set()
   prevTwitterRound.value = 0
@@ -499,6 +528,20 @@ const fetchRunStatus = async () => {
       const data = res.data
       
       runStatus.value = data
+
+      // Patched: 同步图谱写入/收尾进度（数值变化才写日志，避免刷屏）
+      if (data.graph_ingestion) {
+        graphIngest.value = data.graph_ingestion
+        const pendingNow = data.graph_ingestion.pending_episode_count || 0
+        if (pendingNow !== lastPendingLogged.value) {
+          lastPendingLogged.value = pendingNow
+          if (pendingNow > 0) {
+            addLog(`[图谱收尾] 还有 ${pendingNow} 条 episode 正在写入图谱…`)
+          } else if (data.runner_status === 'stopping' || data.runner_status === 'completed') {
+            addLog('[图谱收尾] 图谱写入完成 ✓')
+          }
+        }
+      }
       
       // 分别检测各平台的轮次变化并输出日志
       if (data.twitter_current_round > prevTwitterRound.value) {
@@ -1252,6 +1295,20 @@ onUnmounted(() => {
 
 .log-time { color: #555; min-width: 75px; }
 .log-msg { color: #BBB; word-break: break-all; }
+
+/* Patched: 图谱写入/收尾进度徽标 */
+.log-ingest {
+  margin-left: 12px;
+  padding: 1px 8px;
+  border: 1px solid #444;
+  border-radius: 10px;
+  font-size: 10px;
+  color: #999;
+  letter-spacing: 0.3px;
+}
+.log-ingest.pending { color: #e6b450; border-color: #6b5528; }
+.log-ingest.fail { color: #e06c75; border-color: #6b3238; }
+.log-ingest.done { color: #7ec699; border-color: #2f5c3f; }
 .mono { font-family: 'JetBrains Mono', monospace; }
 
 /* Loading spinner for button */

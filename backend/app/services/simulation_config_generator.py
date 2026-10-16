@@ -89,6 +89,11 @@ class TimeSimulationConfig:
     
     # 每轮代表的时间（模拟分钟）- 默认60分钟（1小时），加快时间流速
     minutes_per_round: int = 60
+
+    # 模拟起始时刻（0-23）。默认 20 点（晚间高峰）：若从 00:00 起跑，
+    # 短轮次运行会整段落在 off_peak_hours(0-5) 与 Agent active_hours(默认8-23)
+    # 之外，每轮激活 0 个 Agent，导致模拟空跑。
+    start_hour: int = 20
     
     # 每小时激活的Agent数量范围
     agents_per_hour_min: int = 5
@@ -633,6 +638,7 @@ class SimulationConfigGenerator:
         return TimeSimulationConfig(
             total_simulation_hours=result.get("total_simulation_hours", 72),
             minutes_per_round=result.get("minutes_per_round", 60),  # 默认每轮1小时
+            start_hour=int(result.get("start_hour", 20)) % 24,
             agents_per_hour_min=agents_per_hour_min,
             agents_per_hour_max=agents_per_hour_max,
             peak_hours=result.get("peak_hours", [19, 20, 21, 22]),

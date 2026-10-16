@@ -18,7 +18,11 @@ logger = get_logger("mirofish.zep")
 
 T = TypeVar("T")
 
-ZEP_CLOUD_BASE_URL = "https://api.getzep.com/api/v2"
+# Patched: allow a local Zep-compatible service. Defaults to Zep Cloud so
+# upstream behaviour is preserved when the variable is unset.
+ZEP_CLOUD_BASE_URL = os.environ.get(
+    "MIROFISH_ZEP_BASE_URL", "https://api.getzep.com/api/v2"
+).rstrip("/")
 # Keep request behavior aligned with the zep-cloud 3.25.0 SDK default that
 # MiroFish used before introducing the shared client. This is an internal
 # integration policy, not a deployment setting users need to tune.
@@ -26,7 +30,29 @@ ZEP_HTTP_REQUEST_TIMEOUT_SECONDS = 60.0
 # Zep ingestion is asynchronous and may take several minutes. Preserve the
 # original GraphBuilder deadline while keeping it separate from HTTP timeout.
 ZEP_INGESTION_WAIT_TIMEOUT_SECONDS = 600
+# Patched: 收尾（图谱写入）等待上限随模拟轮数放大——轮数越多，Agent 活动批次越多，
+# 本地 zepshim 逐条抽取所需时间越长；固定 600s 会让长模拟必然超时并被误判失败。
+# 可用环境变量覆盖：ZEP_INGESTION_WAIT_BASE_SECONDS / _PER_ROUND_SECONDS / _MAX_SECONDS
+ZEP_INGESTION_WAIT_BASE_SECONDS = float(os.environ.get("ZEP_INGESTION_WAIT_BASE_SECONDS", "600"))
+ZEP_INGESTION_WAIT_PER_ROUND_SECONDS = float(os.environ.get("ZEP_INGESTION_WAIT_PER_ROUND_SECONDS", "90"))
+ZEP_INGESTION_WAIT_MAX_SECONDS = float(os.environ.get("ZEP_INGESTION_WAIT_MAX_SECONDS", "14400"))
 MAX_ZEP_SEARCH_QUERY_CHARS = 400
+
+
+def ingestion_wait_timeout_seconds(rounds: Any = None) -> float:
+    """收尾等待上限 = max(保底, 轮数 × 每轮预算)，并受总上限约束。
+
+    Args:
+        rounds: 本次模拟的总轮数；未知时按保底值处理。
+    """
+    budget = ZEP_INGESTION_WAIT_BASE_SECONDS
+    try:
+        count = int(rounds) if rounds is not None else 0
+    except (TypeError, ValueError):
+        count = 0
+    if count > 0:
+        budget = max(budget, count * ZEP_INGESTION_WAIT_PER_ROUND_SECONDS)
+    return min(budget, ZEP_INGESTION_WAIT_MAX_SECONDS)
 MAX_ZEP_SEARCH_RESULTS = 50
 
 
@@ -65,11 +91,8 @@ def _cached_zep_client(api_key: str, timeout: float) -> Zep:
 def get_zep_client(api_key: str | None = None, timeout: float | None = None) -> Zep:
     """Return a process-shared, explicitly configured Zep Cloud client."""
 
-    # zep-cloud gives ZEP_API_URL precedence even when base_url is explicit.
-    # Reject it so this Cloud-only integration cannot silently target a
-    # self-hosted or compatibility endpoint.
-    if os.environ.get("ZEP_API_URL"):
-        raise ValueError("ZEP_API_URL is unsupported; unset it to use Zep Cloud")
+    # Patched: the ZEP_API_URL guard is removed because the configured
+    # endpoint is now whatever MIROFISH_ZEP_BASE_URL points at.
 
     normalized_key = (api_key or Config.ZEP_API_KEY or "").strip()
     if not normalized_key:

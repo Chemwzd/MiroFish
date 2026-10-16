@@ -17,7 +17,22 @@ from ..utils.zep import (
     ZEP_INGESTION_WAIT_TIMEOUT_SECONDS,
     call_zep_read_with_retry,
     get_zep_client,
+    ingestion_wait_timeout_seconds,
 )
+
+
+def _simulation_rounds(simulation_id: Optional[str]) -> Optional[int]:
+    """取本次模拟的总轮数（用于放大收尾等待上限）；拿不到就返回 None。"""
+    if not simulation_id or simulation_id == "unknown":
+        return None
+    try:
+        # 延迟导入，避免与 simulation_runner 形成循环依赖
+        from .simulation_runner import SimulationRunner
+
+        state = SimulationRunner.get_run_state(simulation_id)
+        return getattr(state, "total_rounds", None) if state else None
+    except Exception:  # noqa: BLE001
+        return None
 
 logger = get_logger('mirofish.zep_graph_memory_updater')
 
@@ -312,7 +327,13 @@ class ZepGraphMemoryUpdater:
     
     def stop(self):
         """Drain the worker, flush tail events, and wait for Cloud ingestion."""
-        deadline = time.time() + ZEP_INGESTION_WAIT_TIMEOUT_SECONDS
+        rounds = _simulation_rounds(self.simulation_id)
+        wait_seconds = ingestion_wait_timeout_seconds(rounds)
+        logger.info(
+            f"图谱收尾等待上限 {wait_seconds:.0f}s"
+            f"（simulation={self.simulation_id}, rounds={rounds}）"
+        )
+        deadline = time.time() + wait_seconds
         # Serialize the accepting->closed transition with add_activity's
         # check+enqueue operation. This closes the small race where a producer
         # could enqueue after both the worker and final flush had exited.
@@ -602,7 +623,9 @@ class ZepGraphMemoryUpdater:
             return
 
         if deadline is None:
-            deadline = time.time() + ZEP_INGESTION_WAIT_TIMEOUT_SECONDS
+            deadline = time.time() + ingestion_wait_timeout_seconds(
+                _simulation_rounds(self.simulation_id)
+            )
         while pending:
             if time.time() >= deadline:
                 raise TimeoutError(

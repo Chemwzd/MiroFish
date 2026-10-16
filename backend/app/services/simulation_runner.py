@@ -24,6 +24,7 @@ from ..utils.locale import get_locale, set_locale
 from ..utils.zep import (
     ZEP_HTTP_REQUEST_TIMEOUT_SECONDS,
     ZEP_INGESTION_WAIT_TIMEOUT_SECONDS,
+    ingestion_wait_timeout_seconds,
 )
 from .zep_graph_memory_updater import ZepGraphMemoryManager
 from .simulation_ipc import SimulationIPCClient, CommandType, IPCResponse
@@ -637,6 +638,7 @@ class SimulationRunner:
         
         monitor_error: Exception | None = None
         exit_code: int | None = None
+        auto_completed = False  # 所有平台跑满后由监控线程主动收尾（方案 A）
         try:
             while process.poll() is None:  # 进程仍在运行
                 # 读取 Twitter 动作日志
@@ -653,6 +655,17 @@ class SimulationRunner:
                 
                 # 更新状态
                 cls._save_run_state(state)
+
+                # 方案 A：所有平台都已写出 simulation_end。子进程此时会停在
+                # "等待指令"模式而不退出（后端未传 --no-wait），监控线程将永远
+                # 等不到进程结束、状态也就永远停在 running。这里主动优雅结束它，
+                # 让下方收尾逻辑正常发布 COMPLETED。
+                if not auto_completed and cls._check_all_platforms_completed(state):
+                    logger.info(f"全部平台已跑完，自动结束模拟进程: {simulation_id}")
+                    auto_completed = True
+                    cls._terminate_process(process, simulation_id)
+                    break
+
                 time.sleep(2)
             
             # 进程结束后，最后读取一次日志
@@ -690,7 +703,7 @@ class SimulationRunner:
                     if not manual_stop and monitor_error is not None:
                         desired_status = RunnerStatus.FAILED
                         error_message = str(monitor_error)
-                    elif not manual_stop and exit_code != 0:
+                    elif not manual_stop and exit_code != 0 and not auto_completed:
                         desired_status = RunnerStatus.FAILED
                         main_log_path = os.path.join(sim_dir, "simulation.log")
                         error_info = ""
@@ -1025,7 +1038,7 @@ class SimulationRunner:
         ):
             wait_timeout = max(
                 30.0,
-                ZEP_INGESTION_WAIT_TIMEOUT_SECONDS
+                ingestion_wait_timeout_seconds(getattr(state, "total_rounds", None))
                 + ZEP_HTTP_REQUEST_TIMEOUT_SECONDS
                 + 5,
             )

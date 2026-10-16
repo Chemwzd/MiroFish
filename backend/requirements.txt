@@ -34,3 +34,6 @@ python-dotenv>=1.0.0
 
 # 数据验证
 pydantic>=2.0.0
+
+# camel-ai / oasis 需要 mcp<2（mcp 2.x 里 FastMCP 换了位置，import oasis 会失败）
+mcp==1.24.0

@@ -58,3 +58,10 @@ backend/uploads/
 
 # Docker 数据
 data/
+# --- local deployment artifacts (never commit) ---
+var/
+我/
+*.bak-*
+*.log
+deploy/
+aliases.json

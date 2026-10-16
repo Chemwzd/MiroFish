@@ -511,6 +511,11 @@ class TwitterSimulationRunner:
             if random.random() < activity_level:
                 candidates.append(agent_id)
         
+        try:
+            open(os.path.join(os.path.dirname(self.config_path), "round_trace.log"), "a", encoding="utf-8").write(
+                f"[select] hour={current_hour} target={target_count} candidates={len(candidates)} selected_pool={candidates}\n")
+        except Exception:
+            pass
         # 随机选择
         selected_ids = random.sample(
             candidates, 
@@ -633,7 +638,8 @@ class TwitterSimulationRunner:
         for round_num in range(total_rounds):
             # 计算当前模拟时间
             simulated_minutes = round_num * minutes_per_round
-            simulated_hour = (simulated_minutes // 60) % 24
+            start_hour = int(self.config.get("time_config", {}).get("start_hour", 20)) % 24
+            simulated_hour = (start_hour + simulated_minutes // 60) % 24
             simulated_day = simulated_minutes // (60 * 24) + 1
             
             # 获取本轮激活的Agent
@@ -641,6 +647,11 @@ class TwitterSimulationRunner:
                 self.env, simulated_hour, round_num
             )
             
+            try:
+                open(os.path.join(os.path.dirname(self.config_path), "round_trace.log"), "a", encoding="utf-8").write(
+                    f"[round] n={round_num} hour={simulated_hour} active={len(active_agents)} ids={[a[0] for a in active_agents]}\n")
+            except Exception:
+                pass
             if not active_agents:
                 continue
             
