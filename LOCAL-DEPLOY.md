@@ -131,6 +131,8 @@ no_proxy=127.0.0.1,localhost,::1,0.0.0.0
 ## 7. 溯源
 
 - 上游基线：`7657031`
-- 本分支：`local-deploy-macos`（fork 自上游，见仓库 remote `fork`）
+- fork 仓库：https://github.com/Chemwzd/MiroFish
+- 本分支：`local-deploy-macos`（首版 commit `d6b4e07`，remote 名 `fork`）
+- 比对/回溯：`git -C <repo> fetch origin && git diff origin/main..local-deploy-macos`
 - 备份：改动过的文件旁有 `*.bak-*` 原始副本（未入库，按需查阅）
 - 归档生成：由本地部署过程整理，包含可执行补丁脚本，便于逐条复核/回退
